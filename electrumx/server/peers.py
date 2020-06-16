@@ -285,7 +285,11 @@ class PeerManager:
                 async with connect_rs(peer.host, port, session_factory=PeerSession,
                                       **kwargs) as session:
                     session.sent_request_timeout = 120 if peer.is_tor else 30
-                    await self._verify_peer(session, peer)  #
+                    try:
+                        await self._verify_peer(session, peer)
+                    except Exception as e:
+                        self.logger.info(f">> _should_drop_peer()._verify_peer Exception!!!! for {peer_text}: {e!r}")
+                        raise
                 is_good = True
                 break
             except BadPeerError as e:
