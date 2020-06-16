@@ -414,7 +414,7 @@ class PeerManager:
                 self.logger.info(f'>> server.add_peer: BaseException for {peer}. e={e!r}')
                 raise
             finally:
-                self.logger.info(f'>> server.add_peer: FINALLY for {peer}')
+                self.logger.info(f'>> server.add_peer: FINALLY for {peer}. session.is_closing()={session.is_closing()}')
 
     async def _send_headers_subscribe(self, session):
         message = 'blockchain.headers.subscribe'
