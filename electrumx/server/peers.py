@@ -297,6 +297,9 @@ class PeerManager:
                                   f'({e.code})')
             except (OSError, SOCKSError, ConnectionError, TaskTimeout) as e:
                 self.logger.info(f'{peer_text} {e}')
+            except Exception as e:
+                self.logger.info(f">> _should_drop_peer() Exception!!!! for {peer_text}: {e!r}")
+                raise
             finally:
                 self.logger.info(f">> _should_drop_peer() connection attempt finished to {peer_text}")
 
