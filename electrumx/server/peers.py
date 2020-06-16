@@ -14,11 +14,13 @@ import ssl
 import time
 from collections import Counter, defaultdict
 from ipaddress import IPv4Address, IPv6Address
+import itertools
 
 import aiohttp
 from aiorpcx import (Event, Notification, RPCError, RPCSession, SOCKSError,
                      SOCKSProxy, TaskGroup, TaskTimeout, connect_rs,
                      handler_invocation, ignore_after, sleep)
+from aiorpcx.jsonrpc import CodeMessageError
 
 from electrumx.lib.peer import Peer
 from electrumx.lib.util import class_logger, json_deserialize
@@ -43,7 +45,14 @@ def assert_good(message, result, instance):
 class PeerSession(RPCSession):
     '''An outgoing session to a peer.'''
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._msg_counter = itertools.count(start=1)
+
     async def handle_request(self, request):
+        log = str(self.remote_address().host) == "35.225.54.191"
+        if log:
+            self.logger.info(f"--> blockstream {request}")
         # We subscribe so might be unlucky enough to get a notification...
         if (isinstance(request, Notification) and
                 request.method == 'blockchain.headers.subscribe'):
@@ -51,6 +60,22 @@ class PeerSession(RPCSession):
         else:
             await handler_invocation(None, request)   # Raises
 
+    async def send_request(self, method, args=()):
+        '''Send an RPC request over the network.'''
+        msg_id = next(self._msg_counter)
+        log = str(self.remote_address().host) == "35.225.54.191"
+        if log:
+            self.logger.info(f"<-- blockstream {method} {args} (id: {msg_id})")
+        else:  # TODO
+            self.logger.info(f"<-- spamspam {str(self.remote_address().host)} ... {method} {args} (id: {msg_id})")
+        try:
+            response = await super().send_request(method, args)
+        except CodeMessageError as e:
+            self.logger.info(f"--> blockstream {repr(e)} (id: {msg_id})")
+            raise
+        else:
+            self.logger.info(f"--> blockstream {response} (id: {msg_id})")
+            return response
 
 class PeerManager:
     '''Looks after the DB of peer network servers.
@@ -308,6 +333,10 @@ class PeerManager:
                                   f'({e.code})')
             except (OSError, SOCKSError, ConnectionError, TaskTimeout) as e:
                 self.logger.info(f'{peer_text} {e}')
+            except asyncio.CancelledError:
+                # if session and session.is_closing():
+                #     pass
+                raise
             except Exception as e:
                 self.logger.info(f">> _should_drop_peer() Exception!!!! for {peer_text}: {e!r}")
                 raise
