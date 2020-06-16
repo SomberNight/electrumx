@@ -198,11 +198,13 @@ class PeerManager:
         '''Add a limited number of peers that are not already present.'''
         new_peers = []
         match_set = self.peers.copy()
+        self.logger.info(f">> _note_peers() entered. peers={peers}")
         for peer in peers:
             if not peer.is_public or (peer.is_tor and not self.proxy):
                 continue
 
             matches = peer.matches(match_set)
+            self.logger.info(f">> _note_peers() cp1. peer={peer}. matches={matches}")
             if matches:
                 if check_ports:
                     for match in matches:
@@ -213,6 +215,7 @@ class PeerManager:
                 match_set.add(peer)
                 new_peers.append(peer)
 
+        self.logger.info(f">> _note_peers() cp2. new_peers={new_peers}")
         if new_peers:
             source = source or new_peers[0].source
             if limit:
@@ -229,9 +232,11 @@ class PeerManager:
         return True
 
     async def _monitor_peer(self, peer):
+        self.logger.info(f">> _monitor_peer() entered. peer={peer}")
         # Stop monitoring if we were dropped (a duplicate peer)
         while peer in self.peers:
             if await self._should_drop_peer(peer):
+                self.logger.info(f">> _monitor_peer() discarding peer={peer}")
                 self.peers.discard(peer)
                 break
             # Figure out how long to sleep before retrying.  Retry a
@@ -241,16 +246,21 @@ class PeerManager:
                 pause = STALE_SECS - WAKEUP_SECS * 2
             else:
                 pause = WAKEUP_SECS * 2 ** peer.try_count
+            self.logger.info(f">> _monitor_peer().  peer={peer}. sleeping for up to {pause} seconds.")
             async with ignore_after(pause):
                 await peer.retry_event.wait()
+                self.logger.info(f">> _monitor_peer().  peer={peer}. got retry_event before timeout.")
                 peer.retry_event.clear()
+            self.logger.info(f">> _monitor_peer().  peer={peer}. woken up.")
+        self.logger.info(f">> _monitor_peer() exiting. peer={peer}")
 
     async def _should_drop_peer(self, peer):
         peer.try_count += 1
         is_good = False
+        self.logger.info(f">> _should_drop_peer() entered. peer={peer}. peer.connection_tuples()={peer.connection_tuples()}")
         for kind, port, family in peer.connection_tuples():
-            peer.last_try = time.time()
-
+            peer.last_try = time.time()  #
+            self.logger.info(f">> _should_drop_peer() cp1. peer={peer}. tuple={kind, port, family}")
             kwargs = {'family': family}
             if kind == 'SSL':
                 kwargs['ssl'] = ssl.SSLContext(ssl.PROTOCOL_TLS)
@@ -271,10 +281,11 @@ class PeerManager:
 
             peer_text = f'[{peer}:{port} {kind}]'
             try:
+                self.logger.info(f">> _should_drop_peer() connecting to {peer_text}...")
                 async with connect_rs(peer.host, port, session_factory=PeerSession,
                                       **kwargs) as session:
                     session.sent_request_timeout = 120 if peer.is_tor else 30
-                    await self._verify_peer(session, peer)
+                    await self._verify_peer(session, peer)  #
                 is_good = True
                 break
             except BadPeerError as e:
@@ -286,6 +297,8 @@ class PeerManager:
                                   f'({e.code})')
             except (OSError, SOCKSError, ConnectionError, TaskTimeout) as e:
                 self.logger.info(f'{peer_text} {e}')
+            finally:
+                self.logger.info(f">> _should_drop_peer() connection attempt finished to {peer_text}")
 
         if is_good:
             now = time.time()
@@ -470,7 +483,7 @@ class PeerManager:
             'total': len(self.peers),
         }
 
-    async def add_localRPC_peer(self, real_name):
+    async def add_localRPC_peer(self, real_name):  #
         '''Add a peer passed by the admin over LocalRPC.'''
         await self._note_peers([Peer.from_real_name(real_name, 'RPC')], check_ports=True)
 
