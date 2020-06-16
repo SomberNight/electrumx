@@ -294,6 +294,8 @@ class PeerManager:
                         raise
                     else:
                         self.logger.info(f">> _should_drop_peer()._verify_peer returned ok for {peer_text}")
+                    finally:
+                        self.logger.info(f">> _should_drop_peer()._verify_peer FINALLY for {peer_text}")
                 self.logger.info(f">> _should_drop_peer() setting is_good=True for {peer_text}")
                 is_good = True
                 break
@@ -405,8 +407,14 @@ class PeerManager:
         if features:
             self.logger.info(f'registering ourself with {peer}')
             # We only care to wait for the response
-            await session.send_request('server.add_peer', [features])
-            self.logger.info(f'>> server.add_peer returned for {peer}')
+            try:
+                await session.send_request('server.add_peer', [features])
+                self.logger.info(f'>> server.add_peer: RETURN for {peer}')
+            except BaseException as e:
+                self.logger.info(f'>> server.add_peer: BaseException for {peer}. e={e!r}')
+                raise
+            finally:
+                self.logger.info(f'>> server.add_peer: FINALLY for {peer}')
 
     async def _send_headers_subscribe(self, session):
         message = 'blockchain.headers.subscribe'
