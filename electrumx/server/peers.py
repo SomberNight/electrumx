@@ -47,6 +47,7 @@ class PeerSession(RPCSession):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.logger = class_logger(__name__, self.__class__.__name__)
         self._msg_counter = itertools.count(start=1)
 
     async def handle_request(self, request):
