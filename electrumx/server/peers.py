@@ -198,13 +198,13 @@ class PeerManager:
         '''Add a limited number of peers that are not already present.'''
         new_peers = []
         match_set = self.peers.copy()
-        self.logger.info(f">> _note_peers() entered. peers={peers}")
+        self.logger.info(f">> _note_peers() entered. peers={peers}. source={source}")
         for peer in peers:
             if not peer.is_public or (peer.is_tor and not self.proxy):
                 continue
 
             matches = peer.matches(match_set)
-            self.logger.info(f">> _note_peers() cp1. peer={peer}. matches={matches}")
+            self.logger.info(f">> _note_peers() cp1. peer={peer}. matches={matches}")   #
             if matches:
                 if check_ports:
                     for match in matches:
@@ -257,7 +257,7 @@ class PeerManager:
     async def _should_drop_peer(self, peer):
         peer.try_count += 1
         is_good = False
-        self.logger.info(f">> _should_drop_peer() entered. peer={peer}. peer.connection_tuples()={peer.connection_tuples()}")
+        self.logger.info(f">> _should_drop_peer() entered. peer={peer}.")
         for kind, port, family in peer.connection_tuples():
             peer.last_try = time.time()  #
             self.logger.info(f">> _should_drop_peer() cp1. peer={peer}. tuple={kind, port, family}")
