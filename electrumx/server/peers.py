@@ -301,7 +301,7 @@ class PeerManager:
                 self.logger.info(f">> _should_drop_peer() Exception!!!! for {peer_text}: {e!r}")
                 raise
             finally:
-                self.logger.info(f">> _should_drop_peer() connection attempt finished to {peer_text}")
+                self.logger.info(f">> _should_drop_peer() connection attempt finished to {peer_text}. is_good={is_good}")
 
         if is_good:
             now = time.time()
