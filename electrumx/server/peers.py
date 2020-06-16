@@ -472,7 +472,7 @@ class PeerManager:
 
     async def add_localRPC_peer(self, real_name):
         '''Add a peer passed by the admin over LocalRPC.'''
-        await self._note_peers([Peer.from_real_name(real_name, 'RPC')])
+        await self._note_peers([Peer.from_real_name(real_name, 'RPC')], check_ports=True)
 
     async def on_add_peer(self, features, source_addr):
         '''Add a peer (but only if the peer resolves to the source).'''
