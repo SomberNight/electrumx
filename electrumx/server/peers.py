@@ -286,7 +286,9 @@ class PeerManager:
                                       **kwargs) as session:
                     session.sent_request_timeout = 120 if peer.is_tor else 30
                     try:
+                        self.logger.info(f">> _should_drop_peer()._verify_peer 111111 for {peer_text}")
                         await self._verify_peer(session, peer)
+                        self.logger.info(f">> _should_drop_peer()._verify_peer 222222 for {peer_text}")
                     except Exception as e:
                         self.logger.info(f">> _should_drop_peer()._verify_peer Exception!!!! for {peer_text}: {e!r}")
                         raise
@@ -404,6 +406,7 @@ class PeerManager:
             self.logger.info(f'registering ourself with {peer}')
             # We only care to wait for the response
             await session.send_request('server.add_peer', [features])
+            self.logger.info(f'>> server.add_peer returned for {peer}')
 
     async def _send_headers_subscribe(self, session):
         message = 'blockchain.headers.subscribe'
