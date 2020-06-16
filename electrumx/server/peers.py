@@ -290,6 +290,9 @@ class PeerManager:
                     except Exception as e:
                         self.logger.info(f">> _should_drop_peer()._verify_peer Exception!!!! for {peer_text}: {e!r}")
                         raise
+                    else:
+                        self.logger.info(f">> _should_drop_peer()._verify_peer returned ok for {peer_text}")
+                self.logger.info(f">> _should_drop_peer() setting is_good=True for {peer_text}")
                 is_good = True
                 break
             except BadPeerError as e:
