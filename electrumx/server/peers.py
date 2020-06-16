@@ -67,15 +67,15 @@ class PeerSession(RPCSession):
         log = str(self.remote_address().host) == "35.225.54.191"
         if log:
             self.logger.info(f"<-- blockstream {method} {args} (id: {msg_id})")
-        else:  # TODO
-            self.logger.info(f"<-- spamspam {str(self.remote_address().host)} ... {method} {args} (id: {msg_id})")
         try:
             response = await super().send_request(method, args)
         except CodeMessageError as e:
-            self.logger.info(f"--> blockstream {repr(e)} (id: {msg_id})")
+            if log:
+                self.logger.info(f"--> blockstream {repr(e)} (id: {msg_id})")
             raise
         else:
-            self.logger.info(f"--> blockstream {response} (id: {msg_id})")
+            if log:
+                self.logger.info(f"--> blockstream {response} (id: {msg_id})")
             return response
 
 class PeerManager:
