@@ -1259,8 +1259,10 @@ class ElectrumX(SessionBase):
         if cache_item is not None:
             blockhash, feerate, lock = cache_item
             if blockhash and blockhash == self.session_mgr.bp.tip:
+                self.logger.info(f">>> estimatefee cache hit 1. args={number, mode}")
                 return feerate
         else:
+            self.logger.info(f">>> estimatefee cache miss 1. args={number, mode}")
             # create lock now, store it, and only then await on it
             lock = asyncio.Lock()
             cache[(number, mode)] = (None, None, lock)
@@ -1269,7 +1271,9 @@ class ElectrumX(SessionBase):
             if cache_item is not None:
                 blockhash, feerate, lock = cache_item
                 if blockhash == self.session_mgr.bp.tip:
+                    self.logger.info(f">>> estimatefee cache hit 2. args={number, mode}")
                     return feerate
+            self.logger.info(f">>> estimatefee cache miss 2. args={number, mode}")
             self.bump_cost(2.0)  # cache miss incurs extra cost
             blockhash = self.session_mgr.bp.tip
             if mode:
@@ -1277,6 +1281,7 @@ class ElectrumX(SessionBase):
             else:
                 feerate = await self.daemon_request('estimatefee', number)
             cache[(number, mode)] = (blockhash, feerate, lock)
+            self.logger.info(f">>> estimatefee calculated. args={number, mode}. result={blockhash.hex(), feerate}")
             return feerate
 
     async def ping(self):
