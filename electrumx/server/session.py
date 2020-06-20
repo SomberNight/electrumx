@@ -1255,7 +1255,7 @@ class ElectrumX(SessionBase):
         number = self.coin.bucket_estimatefee_block_target(number)
         cache = self.session_mgr.estimatefee_cache
 
-        cache_item = cache.get(number, mode)
+        cache_item = cache.get((number, mode))
         if cache_item is not None:
             blockhash, feerate, lock = cache_item
             if blockhash and blockhash == self.session_mgr.bp.tip:
@@ -1267,7 +1267,7 @@ class ElectrumX(SessionBase):
             lock = asyncio.Lock()
             cache[(number, mode)] = (None, None, lock)
         async with lock:
-            cache_item = cache.get(number, mode)
+            cache_item = cache.get((number, mode))
             if cache_item is not None:
                 blockhash, feerate, lock = cache_item
                 if blockhash == self.session_mgr.bp.tip:
