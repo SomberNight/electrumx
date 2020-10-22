@@ -23,7 +23,7 @@ with open('requirements.txt') as f:
 setuptools.setup(
     name='e-x',
     version=version,
-    scripts=['electrumx_server', 'electrumx_rpc', 'electrumx_compact_history'],
+    scripts=['electrumx_server', 'electrumx_rpc'],
     python_requires='>=3.10',
     install_requires=requirements,
     extras_require={
