@@ -107,7 +107,6 @@ class DB:
         # "undo data: list of UTXOs spent at block height"
         self.utxo_db = None
 
-        self.utxo_flush_count = 0
         self.fs_height = -1
         self.fs_tx_count = 0
         self.db_height = -1
@@ -169,9 +168,11 @@ class DB:
         self.read_utxo_state()
 
         # Then history DB
-        self.utxo_flush_count = self.history.open_db(self.db_class, for_sync,
-                                                     self.utxo_flush_count,
-                                                     compacting)
+        self.history.open_db(
+            db_class=self.db_class,
+            for_sync=for_sync,
+            utxo_db_tx_count=self.db_tx_count,
+        )
         self.clear_excess_undo_info()
 
         # Read TX counts (requires meta directory)
@@ -254,7 +255,7 @@ class DB:
         self.flush_state(self.utxo_db)
 
         elapsed = self.last_flush - start_time
-        self.logger.info(f'flush #{self.history.flush_count:,d} took '
+        self.logger.info(f'flush took '
                          f'{elapsed:.1f}s.  Height {flush_data.height:,d} '
                          f'txs: {flush_data.tx_count:,d} ({tx_delta:+,d})')
 
@@ -353,7 +354,6 @@ class DB:
                              f'{spend_count:,d} spends in '
                              f'{elapsed:.1f}s, committing...')
 
-        self.utxo_flush_count = self.history.flush_count
         self.db_height = flush_data.height
         self.db_tx_count = flush_data.tx_count
         self.db_tip = flush_data.tip
@@ -384,7 +384,7 @@ class DB:
             self.flush_state(batch)
 
         elapsed = self.last_flush - start_time
-        self.logger.info(f'backup flush #{self.history.flush_count:,d} took '
+        self.logger.info(f'backup flush took '
                          f'{elapsed:.1f}s.  Height {flush_data.height:,d} '
                          f'txs: {flush_data.tx_count:,d} ({tx_delta:+,d})')
 
@@ -595,7 +595,6 @@ class DB:
             self.db_tx_count = 0
             self.db_tip = b'\0' * 32
             self.db_version = max(self.DB_VERSIONS)
-            self.utxo_flush_count = 0
             self.wall_time = 0
             self.first_sync = True
         else:
@@ -617,7 +616,6 @@ class DB:
             self.db_height = state['height']
             self.db_tx_count = state['tx_count']
             self.db_tip = state['tip']
-            self.utxo_flush_count = state['utxo_flush_count']
             self.wall_time = state['wall_time']
             self.first_sync = state['first_sync']
 
@@ -735,17 +733,11 @@ class DB:
             'height': self.db_height,
             'tx_count': self.db_tx_count,
             'tip': self.db_tip,
-            'utxo_flush_count': self.utxo_flush_count,
             'wall_time': self.wall_time,
             'first_sync': self.first_sync,
             'db_version': self.db_version,
         }
         batch.put(b'state', repr(state).encode())
-
-    def set_flush_count(self, count):
-        self.utxo_flush_count = count
-        with self.utxo_db.write_batch() as batch:
-            self.write_utxo_state(batch)
 
     async def all_utxos(self, hashX):
         '''Return all UTXOs for an address sorted in no particular order.'''
