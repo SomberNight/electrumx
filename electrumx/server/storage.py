@@ -26,9 +26,10 @@ def db_class(name) -> Type['Storage']:
 class Storage:
     '''Abstract base class of the DB backend abstraction.'''
 
-    def __init__(self, name, for_sync):
+    def __init__(self, name, *, for_sync: bool, use_bloom: bool = False):
         self.is_new = not os.path.exists(name)
         self.for_sync = for_sync or self.is_new
+        self._use_bloom = use_bloom
         self.open(name, create=self.is_new)
 
     @classmethod
@@ -80,8 +81,13 @@ class LevelDB(Storage):
     def open(self, name, create):
         mof = 512 if self.for_sync else 128
         # Use snappy compression (the default)
-        self.db = self.module.DB(name, create_if_missing=create,
-                                 max_open_files=mof)
+        self.db = self.module.DB(
+            name,
+            create_if_missing=create,
+            max_open_files=mof,
+            bloom_filter_bits=10 if self._use_bloom else 0,
+            max_file_size=32*1024*1024,
+        )
         self.close = self.db.close
         self.get = self.db.get
         self.put = self.db.put
