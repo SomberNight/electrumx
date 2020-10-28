@@ -75,7 +75,7 @@ class History:
             for_sync: bool,
             utxo_db_tx_count: int,
     ) -> None:
-        self.db = db_class('hist', for_sync)
+        self.db = db_class('hist', for_sync=for_sync)
         self.read_state()
         self.clear_excess(utxo_db_tx_count)
 

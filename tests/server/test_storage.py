@@ -20,7 +20,7 @@ for c in subclasses(Storage):
 def db(tmpdir, request):
     cwd = os.getcwd()
     os.chdir(str(tmpdir))
-    db = db_class(request.param)("db", False)
+    db = db_class(request.param)("db", for_sync=False)
     yield db
     os.chdir(cwd)
     db.close()
@@ -69,5 +69,5 @@ def test_iterator_reverse(db):
 def test_close(db):
     db.put(b"a", b"b")
     db.close()
-    db = db_class(db.__class__.__name__)("db", False)
+    db = db_class(db.__class__.__name__)("db", for_sync=False)
     assert db.get(b"a") == b"b"

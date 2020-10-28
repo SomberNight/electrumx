@@ -161,7 +161,11 @@ class DB:
         assert self.utxo_db is None
 
         # First UTXO DB
-        self.utxo_db = self.db_class('utxo', for_sync)
+        self.utxo_db = self.db_class(
+            'utxo',
+            for_sync=for_sync,
+            use_bloom=True,
+        )
         if self.utxo_db.is_new:
             self.logger.info('created new database')
             self.logger.info('creating metadata directory')
