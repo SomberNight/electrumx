@@ -13,6 +13,7 @@ import asyncio
 from collections import defaultdict
 import time
 from typing import Sequence, Tuple, List, Callable, Optional, TYPE_CHECKING, Type
+import multiprocessing
 
 from aiorpcx import TaskGroup, run_in_thread, CancelledError
 
@@ -50,7 +51,7 @@ class Prefetcher:
         # The prefetched block cache size.  The min cache size has
         # little effect on sync time.
         self.cache_size = 0
-        self.min_cache_size = 10 * 1024 * 1024
+        self.min_cache_size = 50 * 1024 * 1024
         # This makes the first fetch be 10 blocks
         self.ave_size = self.min_cache_size // 10
         self.polling_delay = 5
@@ -111,7 +112,7 @@ class Prefetcher:
         daemon = self.daemon
         daemon_height = await daemon.height()
         async with self.semaphore:
-            while self.cache_size < self.min_cache_size:
+            while self.cache_size < self.min_cache_size:  #
                 first = self.fetched_height + 1
                 # Try and catch up all blocks but limit to room in cache.
                 cache_room = max(self.min_cache_size // self.ave_size, 1)
@@ -163,11 +164,19 @@ class BlockProcessor:
     Coordinate backing up in case of chain reorganisations.
     '''
 
-    def __init__(self, env: 'Env', db: DB, daemon: Daemon, notifications: 'Notifications'):
+    def __init__(
+            self,
+            env: 'Env',
+            db: DB,
+            daemon: Daemon,
+            notifications: 'Notifications',
+            pool: 'multiprocessing.pool.Pool',
+    ):
         self.env = env
         self.db = db
         self.daemon = daemon
         self.notifications = notifications
+        self.process_pool = pool
 
         self.coin = env.coin
         # blocks_event: set when new blocks are put on the queue by the Prefetcher, to be processed
@@ -223,8 +232,12 @@ class BlockProcessor:
         first = self.height + 1
         blocks_size = sum(len(block) for block in raw_blocks) / 1_000_000
         start = time.monotonic()
-        blocks = [self.coin.block(raw_block, first + n)
-                  for n, raw_block in enumerate(raw_blocks)]
+        raw_blocks_with_height = (
+            (raw_block, height)
+            for height, raw_block in enumerate(raw_blocks, start=first))
+        blocks = self.process_pool.starmap(self.coin.block, raw_blocks_with_height)
+        # blocks = [self.coin.block(raw_block, first + n)
+        #                   for n, raw_block in enumerate(raw_blocks)]
         self.logger.info(f'deserialised {len(blocks):,d} block size {blocks_size:.2f} MB '
                          f'in {time.monotonic() - start:.4f}s')
         headers = [block.header for block in blocks]
@@ -681,7 +694,7 @@ class BlockProcessor:
                 self.reorg_count = 0
             else:
                 blocks = self.prefetcher.get_prefetched_blocks()
-                await self.check_and_advance_blocks(blocks)
+                await self.check_and_advance_blocks(blocks)  #
 
     async def _first_caught_up(self):
         self.logger.info(f'caught up to height {self.height}')
