@@ -221,8 +221,12 @@ class BlockProcessor:
         if not raw_blocks:
             return
         first = self.height + 1
+        blocks_size = sum(len(block) for block in raw_blocks) / 1_000_000
+        start = time.monotonic()
         blocks = [self.coin.block(raw_block, first + n)
                   for n, raw_block in enumerate(raw_blocks)]
+        self.logger.info(f'deserialised {len(blocks):,d} block size {blocks_size:.2f} MB '
+                         f'in {time.monotonic() - start:.4f}s')
         headers = [block.header for block in blocks]
         hprevs = [self.coin.header_prevhash(h) for h in headers]
         chain = [self.tip] + [self.coin.header_hash(h) for h in headers[:-1]]
@@ -410,6 +414,7 @@ class BlockProcessor:
 
         It is already verified they correctly connect onto our tip.
         '''
+        start = time.monotonic()
         min_height = self.db.min_undo_height(self.daemon.cached_height())
         height = self.height
         genesis_activation = self.coin.GENESIS_ACTIVATION
@@ -429,6 +434,8 @@ class BlockProcessor:
         self.tip = self.coin.header_hash(headers[-1])
         self.tip_advanced_event.set()
         self.tip_advanced_event.clear()
+        self.logger.info(f'advance_blocks() done. for {len(blocks):,d} blocks, '
+                         f'in {time.monotonic() - start:.4f}s')
 
     def advance_txs(
             self,
