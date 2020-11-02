@@ -50,9 +50,10 @@ class Prefetcher:
         # The prefetched block cache size.  The min cache size has
         # little effect on sync time.
         self.cache_size = 0
-        self.min_cache_size = 10 * 1024 * 1024
+        self.cache_size_target = 10 * 1024 * 1024
+        self.cache_size_max = 50 * 1024 * 1024  # high-water mark
         # This makes the first fetch be 10 blocks
-        self.ave_size = self.min_cache_size // 10
+        self.ave_size = self.cache_size_target // 10
         self.polling_delay = 5
 
     async def main_loop(self, bp_height):
@@ -111,10 +112,10 @@ class Prefetcher:
         daemon = self.daemon
         daemon_height = await daemon.height()
         async with self.semaphore:
-            while self.cache_size < self.min_cache_size:
+            while self.cache_size < self.cache_size_max:
                 first = self.fetched_height + 1
                 # Try and catch up all blocks but limit to room in cache.
-                cache_room = max(self.min_cache_size // self.ave_size, 1)
+                cache_room = max(self.cache_size_target // self.ave_size, 1)
                 count = min(daemon_height - self.fetched_height, cache_room)
                 # Don't make too large a request
                 count = min(self.coin.max_fetch_blocks(first), max(count, 0))
@@ -222,8 +223,12 @@ class BlockProcessor:
         if not raw_blocks:
             return
         first = self.height + 1
-        blocks = [self.coin.block(raw_block, first + n)
-                  for n, raw_block in enumerate(raw_blocks)]
+
+        def deserialize_blocks():
+            return [self.coin.block(raw_block, first + n)
+                    for n, raw_block in enumerate(raw_blocks)]
+
+        blocks = await run_in_thread(deserialize_blocks)
         headers = [block.header for block in blocks]
         hprevs = [self.coin.header_prevhash(h) for h in headers]
         chain = [self.tip] + [self.coin.header_hash(h) for h in headers[:-1]]
