@@ -243,6 +243,25 @@ class SessionManager:
                 await self._start_external_servers()
                 paused = False
 
+    async def _log_memusage(self):
+        import objgraph
+        import random
+        #i = 0
+        while True:
+            await sleep(60)
+            self.logger.info(f">>hellothere>>")
+            objgraph.show_most_common_types(limit=50)
+            # to convert to image:
+            # $ dot -Tps filename.dot -o outfile.ps
+            # await run_in_thread(lambda:
+            #                     objgraph.show_chain(
+            #                         objgraph.find_backref_chain(
+            #                             random.choice(objgraph.by_type('ElectrumX')),
+            #                             objgraph.is_proper_module),
+            #                         filename=f"/srv/db/graph{i}.dot"))
+            # self.logger.info(f">>hellothere>> done creating dot file")
+            # i += 1
+
     async def _log_sessions(self):
         '''Periodically log sessions.'''
         log_interval = self.env.log_sessions
@@ -638,6 +657,7 @@ class SessionManager:
                 await group.spawn(self._recalc_concurrency())
                 await group.spawn(self._log_sessions())
                 await group.spawn(self._manage_servers())
+                await group.spawn(self._log_memusage())
         finally:
             # Close servers then sessions
             await self._stop_servers(self.servers.keys())
