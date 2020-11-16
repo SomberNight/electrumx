@@ -100,7 +100,7 @@ class DB:
         os.chdir(env.db_dir)
 
         self.db_class = db_class(self.env.db_engine)
-        self.history = History()
+        self.history = History(get_txhash_for_txnum=self._get_txhash_for_txnum)
 
         # Key: b'u' + address_hashX + tx_num + txout_idx
         # Value: the UTXO value as a 64-bit unsigned integer (in satoshis)
@@ -390,7 +390,6 @@ class DB:
         flush_data.undo_block_tx_hashes.clear()
         assert len(tx_hashes) == -tx_delta
 
-        self.backup_fs(flush_data.height, flush_data.tx_count)
         self.history.backup(
             hashXs=touched_hashxs,
             tx_count=flush_data.tx_count,
@@ -398,6 +397,7 @@ class DB:
             spends=flush_data.undo_historical_spends,
         )
         flush_data.undo_historical_spends.clear()
+        self.backup_fs(flush_data.height, flush_data.tx_count)
         with self.utxo_db.write_batch() as batch:
             self.flush_utxo_db(batch, flush_data)
             # Flush state last as it reads the wall time.
@@ -478,6 +478,13 @@ class DB:
         else:
             tx_hash = self.hashes_file.read(tx_num * 32, 32)
         return tx_hash, tx_height
+
+    def _get_txhash_for_txnum(self, tx_num: int) -> Optional[bytes]:
+        '''Return tx_hash for given tx number, even if it is ahead of UTXO DB state.'''
+        if tx_num >= self.fs_tx_count:
+            return None
+        tx_hash = self.hashes_file.read(tx_num * 32, 32)
+        return tx_hash
 
     def fs_tx_hashes_at_blockheight(self, block_height):
         '''Return a list of tx_hashes at given block height,

@@ -11,7 +11,7 @@
 import ast
 import time
 from collections import defaultdict
-from typing import TYPE_CHECKING, Type, Optional, Dict, Sequence, Tuple
+from typing import TYPE_CHECKING, Type, Optional, Dict, Sequence, Tuple, Callable
 import itertools
 
 import electrumx.lib.util as util
@@ -28,6 +28,7 @@ TXNUM_LEN = 5
 TXNUM_PADDING = bytes(8 - TXNUM_LEN)
 TXOUTIDX_LEN = 3
 TXOUTIDX_PADDING = bytes(4 - TXOUTIDX_LEN)
+TTXID_LEN = 11  # len of truncated TXIDs used for b't' records
 
 
 def unpack_txnum(tx_numb: bytes) -> int:
@@ -44,8 +45,9 @@ class History:
 
     db: Optional['Storage']
 
-    def __init__(self):
+    def __init__(self, *, get_txhash_for_txnum: Callable[[int], Optional[bytes]]):
         self.logger = util.class_logger(__name__, self.__class__.__name__)
+        self._get_txhash_for_txnum = get_txhash_for_txnum
         self.hist_db_tx_count = 0
         self.hist_db_tx_count_next = 0  # after next flush, next value for self.hist_db_tx_count
         self.db_version = max(self.DB_VERSIONS)
@@ -60,8 +62,8 @@ class History:
         # Value: <null>
         # "address -> funding outputs"  (no spends!)
         # ---
-        # Key: b't' + tx_hash
-        # Value: tx_num
+        # Key: b't' + tx_hash[:TTXID_LEN] + tx_num
+        # Value: <null>
         # ---
         # Key: b's' + tx_num + txout_idx
         # Value: tx_num
@@ -127,7 +129,7 @@ class History:
 
         tkeys = []
         for db_key, db_val in self.db.iterator(prefix=b't'):
-            tx_numb = db_val
+            tx_numb = db_key[-TXNUM_LEN:]
             tx_num = unpack_txnum(tx_numb)
             if tx_num >= utxo_db_tx_count:
                 tkeys.append(db_key)
@@ -215,9 +217,9 @@ class History:
                     db_key = b'H' + hashX + outpoint
                     batch.put(db_key, b'')
             for tx_hash, tx_num in sorted(self._unflushed_txhash_to_txnum_map.items()):
-                db_key = b't' + tx_hash
                 tx_numb = pack_txnum(tx_num)
-                batch.put(db_key, tx_numb)
+                db_key = b't' + tx_hash[:TTXID_LEN] + tx_numb
+                batch.put(db_key, b'')
             for prevout, spender_txnum in sorted(self._unflushed_txo_to_spender.items()):
                 db_key = b's' + prevout
                 db_val = pack_txnum(spender_txnum)
@@ -255,8 +257,8 @@ class History:
                     else:
                         # note: we can break now, due to 'reverse=True' and txnums being big endian
                         break
-                for key in deletes:
-                    batch.delete(key)
+                for db_key in deletes:
+                    batch.delete(db_key)
             for spend in spends:
                 prev_hash = spend[:32]
                 prev_idx = spend[32:]
@@ -267,8 +269,17 @@ class History:
                 db_key = b's' + prev_txnumb + prev_idx
                 batch.delete(db_key)
             for tx_hash in sorted(tx_hashes):
-                db_key = b't' + tx_hash
-                batch.delete(db_key)
+                deletes = []
+                prefix = b't' + tx_hash[:TTXID_LEN]
+                for db_key, db_val in self.db.iterator(prefix=prefix, reverse=True):
+                    tx_numb = db_key[-TXNUM_LEN:]
+                    tx_num = unpack_txnum(tx_numb)
+                    if tx_num >= tx_count:
+                        deletes.append(db_key)
+                    else:
+                        break
+                for db_key in deletes:
+                    batch.delete(db_key)
             self.hist_db_tx_count = tx_count
             self.hist_db_tx_count_next = self.hist_db_tx_count
             self.write_state(batch)
@@ -301,13 +312,17 @@ class History:
         return ret
 
     def get_txnum_for_txhash(self, tx_hash: bytes) -> Optional[int]:
+        assert tx_hash
         tx_num = self._unflushed_txhash_to_txnum_map.get(tx_hash)
-        if tx_num is None:
-            db_key = b't' + tx_hash
-            tx_numb = self.db.get(db_key)
-            if tx_numb:
-                tx_num = unpack_txnum(tx_numb)
-        return tx_num
+        if tx_num is not None:
+            return tx_num
+        prefix = b't' + tx_hash[:TTXID_LEN]
+        for db_key, db_val in self.db.iterator(prefix=prefix):
+            tx_numb = db_key[-TXNUM_LEN:]
+            tx_num = unpack_txnum(tx_numb)
+            if tx_hash == self._get_txhash_for_txnum(tx_num):
+                return tx_num
+        return None
 
     def get_spender_txnum_for_txo(self, prev_txnum: int, txout_idx: int) -> Optional[int]:
         '''For an outpoint, returns the tx_num that spent it.
