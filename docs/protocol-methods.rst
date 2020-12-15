@@ -369,8 +369,9 @@ hashes>`.
 
 **Result**
 
-  A list of mempool transactions in arbitrary order.  Each mempool
-  transaction is a dictionary with the following keys:
+  A list of mempool transactions ordered by `tx_hash` (with endianness
+  same as displayed hex).  Each mempool transaction is a dictionary
+  with the following keys:
 
   * *height*
 
