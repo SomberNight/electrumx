@@ -37,9 +37,9 @@ class MemPoolTx:
 
 @attr.s(slots=True)
 class MemPoolTxSummary:
-    hash = attr.ib()
-    fee = attr.ib()
-    has_unconfirmed_inputs = attr.ib()
+    hash = attr.ib()                    # type: bytes
+    fee = attr.ib()                     # type: int  # in sats
+    has_unconfirmed_inputs = attr.ib()  # type: bool
 
 
 class DBSyncError(Exception):
