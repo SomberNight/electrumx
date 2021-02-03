@@ -123,7 +123,7 @@ class Daemon:
                     return await resp.json(loads=json_deserialize)
                 text = await resp.text()
                 text = text.strip() or resp.reason
-                raise ServiceRefusedError(text)
+                raise ServiceRefusedError(f"text={text}. status={resp.status}. headers={resp.headers}")
 
     async def _send(self, payload, processor):
         '''Send a payload to be converted to JSON.
