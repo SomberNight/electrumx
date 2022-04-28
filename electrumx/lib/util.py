@@ -381,6 +381,15 @@ class OldTaskGroup(aiorpcx.TaskGroup):
                 self.completed.result()
 
 
+# We monkey-patch aiorpcx.TaskGroup._add_task:
+def _patched_TaskGroup_add_task(self: 'aiorpcx.TaskGroup', task):
+    self._orig_add_task(self, task)
+    self.tasks.clear()
+
+aiorpcx.TaskGroup._orig_add_task = staticmethod(aiorpcx.TaskGroup._add_task)
+aiorpcx.TaskGroup._add_task      = _patched_TaskGroup_add_task
+
+
 # We monkey-patch aiorpcx TimeoutAfter (used by timeout_after and ignore_after API),
 # to fix a timing issue present in asyncio as a whole re timing out tasks.
 # To see the issue we are trying to fix, consider example:
