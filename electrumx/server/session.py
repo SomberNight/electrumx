@@ -1240,13 +1240,13 @@ class ElectrumX(SessionBase):
         while True:
             # get a history part from db, update status to incorporate it, and maybe store status
             db_history_part = await self.db.limited_history_triples(
-                hashX=hashX, limit=storestatus_period, txnum_min=tx_num+1, txnum_max=txnum_max)
+                hashX=hashX, limit=storestatus_period, txnum_min=tx_num+1, txnum_max=txnum_max)  #
             self.bump_cost(0.3 + len(db_history_part) * 0.001)  # cost of history-lookup
             self.bump_cost(36 * len(db_history_part) * 0.00002)  # cost of hashing mined txs
-            for (tx_hash, height, tx_num) in db_history_part:
+            for cnt, (tx_hash, height, tx_num) in enumerate(db_history_part, start=1):
                 tx_item = tx_hash + util.pack_le_int32(height)
                 status = sha256(status + tx_item)
-                if height < reorgsafe_height:
+                if cnt % storestatus_period == 0 and height < reorgsafe_height:  # FIXME why at every iter??
                     self.db.history.store_intermediate_statushash_for_hashx(
                         hashX=hashX, tx_num=tx_num, status=status)
             # if db_history_part is not max-sized, then there are no more parts.
