@@ -90,6 +90,14 @@ other_commands = {
             'help': 'e.g. "_asyncio.Task"',
         },
     ),
+    'debug_eval': (
+        'execute arbitrary code inside the python process',
+        [], {
+            'type': str,
+            'dest': 'code',
+            'help': 'e.g. "session_mgr.peer_mgr.group.joined"',
+        },
+    ),
 }
 
 

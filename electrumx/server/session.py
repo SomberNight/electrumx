@@ -18,7 +18,7 @@ import time
 from collections import defaultdict
 from functools import partial
 from ipaddress import IPv4Address, IPv6Address, IPv4Network, IPv6Network
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Any
 import asyncio
 
 import attr
@@ -168,7 +168,7 @@ class SessionManager:
         # Set up the RPC request handlers
         cmds = ('add_peer daemon_url disconnect getinfo groups log peers '
                 'query reorg sessions stop debug_memusage_list_all_objects '
-                'debug_memusage_get_random_backref_chain'.split())
+                'debug_memusage_get_random_backref_chain debug_eval'.split())
         LocalRPC.request_handlers = {cmd: getattr(self, 'rpc_' + cmd)
                                      for cmd in cmds}
 
@@ -626,6 +626,12 @@ class SessionManager:
                         objgraph.is_proper_module),
                     output=fd))
             return fd.getvalue()
+
+    async def rpc_debug_eval(self, code: str) -> Any:  # TODO disable by default
+        namespace = {
+            'session_mgr': self,
+        }
+        return eval(code, namespace, namespace)  # TODO how to handle exceptions?
 
     # --- External Interface
 
