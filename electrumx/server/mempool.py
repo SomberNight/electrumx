@@ -152,20 +152,54 @@ class MemPool:
             await sleep(self.coin.MEMPOOL_HISTOGRAM_REFRESH_SECS)
 
     def _update_histogram(self, bin_size):
+        self.logger.info(f'updating compact fee histogram...')
+        txs = self.txs
         # Build a histogram by fee rate
-        histogram = defaultdict(int)
-        for tx in self.txs.values():
+        histogram1 = defaultdict(int)
+        for tx in txs.values():
             fee_rate = tx.fee / tx.size
             # use 0.1 sat/byte resolution
             # note: rounding *down* is intentional. This ensures txs
             #       with a given fee rate will end up counted in the expected
             #       bucket/interval of the compact histogram.
             fee_rate = math.floor(10 * fee_rate) / 10
-            histogram[fee_rate] += tx.size
+            histogram1[fee_rate] += tx.size
 
-        compact = self._compress_histogram(histogram, bin_size=bin_size)
-        self.logger.info(f'compact fee histogram: {compact}')
-        self.cached_compact_histogram = compact
+        compact1 = self._compress_histogram(histogram1, bin_size=bin_size)
+        self.logger.info(f'compact fee histogram1: {compact1}')
+        self.cached_compact_histogram = compact1
+
+        # experimental:
+        # Build a histogram by *ancestor fee rate*
+        histogram2 = defaultdict(int)
+        for txid, tx in txs.items():
+            total_ancestor_size = 0
+            total_ancestor_fee = 0
+            # find all unconfirmed ancestors of tx
+            ancestor_txid_set = {txid}
+            ancestor_txid_list = [txid]
+            i = 0
+            while i < len(ancestor_txid_list):
+                ancestor_txid = ancestor_txid_list[i]
+                i += 1
+                ancestor_tx = txs.get(ancestor_txid)
+                if ancestor_tx is None:  # mempool changed in the meantime
+                    continue
+                total_ancestor_size += ancestor_tx.size
+                total_ancestor_fee += ancestor_tx.fee
+                for prevout in ancestor_tx.prevouts:
+                    prev_hash, prev_index = prevout
+                    if prev_hash in txs:  # i.e. parent also unconfirmed
+                        if prev_hash not in ancestor_txid_set:
+                            ancestor_txid_set.add(prev_hash)
+                            ancestor_txid_list.append(prev_hash)
+            if total_ancestor_size == 0:
+                continue
+            a_fee_rate = total_ancestor_fee / total_ancestor_size
+            a_fee_rate = math.floor(10 * a_fee_rate) / 10
+            histogram2[a_fee_rate] += tx.size
+        compact2 = self._compress_histogram(histogram2, bin_size=bin_size)
+        self.logger.info(f'compact fee histogram2: {compact2}')
 
     @classmethod
     def _compress_histogram(
