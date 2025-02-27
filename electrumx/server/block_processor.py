@@ -198,6 +198,7 @@ class BlockProcessor:
         # Caches of unflushed items.
         self.headers = []
         self.tx_hashes = []  # type: List[bytes]
+        self.wtxids = []  # type: List[bytes]
         self.undo_tx_hashes = []  # type: List[bytes]
         self.undo_historical_spends = []  # type: List[bytes]
         self.undo_infos = []  # type: List[Tuple[Sequence[bytes], int]]
@@ -232,7 +233,7 @@ class BlockProcessor:
             return
         first = self.height + 1
         blocks = [self.coin.block(raw_block, first + n)
-                  for n, raw_block in enumerate(raw_blocks)]
+                  for n, raw_block in enumerate(raw_blocks)]  #
         headers = [block.header for block in blocks]
         hprevs = [self.coin.header_prevhash(h) for h in headers]
         chain = [self.tip] + [self.coin.header_hash(h) for h in headers[:-1]]
@@ -370,6 +371,7 @@ class BlockProcessor:
             tx_count=self.tx_count,
             headers=self.headers,
             block_tx_hashes=self.tx_hashes,
+            block_wtxids=self.wtxids,
             undo_block_tx_hashes=self.undo_tx_hashes,
             undo_historical_spends=self.undo_historical_spends,
             undo_infos=self.undo_infos,
@@ -505,6 +507,7 @@ class BlockProcessor:
             tx_num += 1
 
         self.tx_hashes.append(b''.join(tx.txid for tx in txs))
+        self.wtxids.append()
         self.db.history.add_unflushed(
             hashXs_by_tx=hashXs_by_tx,
             first_tx_num=self.tx_count,
@@ -864,6 +867,7 @@ class LTORBlockProcessor(BlockProcessor):
             update_touched_hashxs(hashXs)
 
         self.tx_hashes.append(b''.join(tx.txid for tx in txs))
+        self.wtxids.append()
         self.db.history.add_unflushed(
             hashXs_by_tx=hashXs_by_tx,
             first_tx_num=self.tx_count,

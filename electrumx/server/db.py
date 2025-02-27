@@ -54,6 +54,7 @@ class FlushData:
     headers = attr.ib()
     block_tx_hashes = attr.ib()  # type: List[bytes]
     undo_block_tx_hashes = attr.ib()  # type: List[bytes]
+    block_wtxids = attr.ib()  # type: List[bytes]
     undo_historical_spends = attr.ib()  # type: List[bytes]
     # The following are flushed to the UTXO DB if undo_infos is not None
     undo_infos = attr.ib()  # type: List[Tuple[Sequence[bytes], int]]
@@ -132,6 +133,8 @@ class DB:
         self.tx_counts_file = util.LogicalFile('meta/txcounts', 2, 2000000)
         # on-disk: 32 byte txids in chain order, allows (tx_num -> txid) map
         self.hashes_file = util.LogicalFile('meta/hashes', 4, 16000000)
+        # on-disk: 32 byte wtxids in chain order, allows (tx_num -> wtxid) map
+        self.wtxids_file = util.LogicalFile('meta/wtxids', 4, 16000000)
         if not self.coin.STATIC_BLOCK_HEADERS:
             self.headers_offsets_file = util.LogicalFile(
                 'meta/headers_offsets', 2, 16000000)
@@ -472,7 +475,7 @@ class DB:
             tx_hash = self.hashes_file.read(tx_num * 32, 32)
         return tx_hash, tx_height
 
-    def fs_tx_hashes_at_blockheight(self, block_height):
+    def fs_tx_hashes_at_blockheight(self, block_height):  #
         '''Return a list of tx_hashes at given block height,
         in the same order as in the block.
         '''

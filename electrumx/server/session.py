@@ -719,6 +719,17 @@ class SessionManager:
             return 0
         return sum((group.cost() - session.cost) * group.weight for group in groups)
 
+    async def getrawtransaction(self, tx_hash_hex: str, *, verbose: bool = False) -> str:
+        tx_hash_bytes = assert_tx_hash(tx_hash_hex)
+        blockhash = None
+        if not self.env.daemon_has_txindex:
+            height, tx_pos = await self.db.get_blockheight_and_txpos_for_txhash(tx_hash_bytes)
+            if height is not None:
+                block_header = await self.db.raw_header(height)
+                blockhash = self.env.coin.header_hash(block_header).hex()
+
+        return await self.daemon_request('getrawtransaction', tx_hash_hex, verbose, blockhash)
+
     async def _merkle_branch(self, height, tx_hashes, tx_pos):
         tx_hash_count = len(tx_hashes)
         cost = tx_hash_count
@@ -747,6 +758,40 @@ class SessionManager:
             self, *, tx_hash: bytes, height: int = None,
     ) -> Tuple[int, Sequence[str], int, bytes, float]:
         '''Returns (height, branch, tx_pos, block_header, cost).'''
+        cost = 0
+        tx_pos = None
+        if height is None:
+            cost += 0.1
+            height, tx_pos = await self.db.get_blockheight_and_txpos_for_txhash(tx_hash)
+        if height is None:
+            raise RPCError(BAD_REQUEST,
+                           f'tx {hash_to_hex_str(tx_hash)} not in any block')
+        block_header = await self.raw_header(height)
+        tx_hashes, tx_hashes_cost = await self.tx_hashes_at_blockheight(height)
+        if tx_pos is None:
+            try:
+                tx_pos = tx_hashes.index(tx_hash)
+            except ValueError:
+                raise RPCError(BAD_REQUEST,
+                               f'tx {hash_to_hex_str(tx_hash)} not in block at height {height:,d}')
+
+        def error_reorg():
+            # there was a reorg while processing the request... TODO maybe retry?
+            raise RPCError(BAD_REQUEST,
+                           f'tx {hash_to_hex_str(tx_hash)} was reorged while processing request')
+
+        if not (len(tx_hashes) > tx_pos and tx_hashes[tx_pos] == tx_hash):
+            error_reorg()
+        if block_header != await self.raw_header(height):
+            error_reorg()
+        branch, merkle_cost = await self._merkle_branch(height, tx_hashes, tx_pos)
+        cost += tx_hashes_cost + merkle_cost
+        return height, branch, tx_pos, block_header, cost
+
+    async def witness_merkle_branch_for_tx_hash(
+            self, *, tx_hash: bytes, height: int = None,
+    ) -> Tuple[int, Sequence[str], int, bytes, float]:
+        """TODO xxxx"""
         cost = 0
         tx_pos = None
         if height is None:
@@ -1788,22 +1833,12 @@ class ElectrumX(SessionBase):
         tx_hash: the transaction hash as a hexadecimal string
         verbose: passed on to the daemon
         '''
-        tx_hash_bytes = assert_tx_hash(tx_hash)
-        tx_hash_hex = tx_hash
-        del tx_hash
+        assert_tx_hash(tx_hash)
         if verbose not in (True, False):
             raise RPCError(BAD_REQUEST, '"verbose" must be a boolean')
 
         self.bump_cost(1.0)
-
-        blockhash = None
-        if not self.env.daemon_has_txindex:
-            height, tx_pos = await self.db.get_blockheight_and_txpos_for_txhash(tx_hash_bytes)
-            if height is not None:
-                block_header = await self.db.raw_header(height)
-                blockhash = self.coin.header_hash(block_header).hex()
-
-        return await self.daemon_request('getrawtransaction', tx_hash_hex, verbose, blockhash)
+        return await self.session_mgr.getrawtransaction(tx_hash, verbose=verbose)
 
     async def transaction_merkle(self, tx_hash, height=None):
         '''Return the merkle branch to a confirmed transaction given its hash
@@ -1902,6 +1937,7 @@ class ElectrumX(SessionBase):
             handlers['blockchain.scriptpubkey.listunspent'] = self.scriptpubkey_listunspent
             handlers['blockchain.scriptpubkey.subscribe'] = self.scriptpubkey_subscribe
             handlers['blockchain.scriptpubkey.unsubscribe'] = self.scriptpubkey_unsubscribe
+            handlers['blockchain.transaction.get_merkle_witness'] = self.transaction_merkle  # TODO xxxx
             notif_handlers['server.ping'] = self.on_ping_notification
 
         self.request_handlers = handlers
