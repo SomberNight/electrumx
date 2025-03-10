@@ -735,6 +735,9 @@ class SessionManager:
         mccache = self._merkle_wtxid_cache if wtxid else self._merkle_txid_cache
         tx_hash_count = len(tx_hashes)
         cost = tx_hash_count
+        if wtxid:
+            tx_hashes = list(tx_hashes)
+            tx_hashes[0] = bytes(32)  # The wtxid of coinbase tx is assumed to be 0x0000....0000
 
         if tx_hash_count >= 200:
             mccache.num_lookups += 1
