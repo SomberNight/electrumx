@@ -1478,6 +1478,19 @@ class ElectrumX(SessionBase):
         self.bump_cost(1.0)
         return await self.daemon_request('mempool_info')
 
+    async def mempool_recent(self) -> list[dict[str, Any]]:
+        """
+        mempool.recent, introduced in protocol 1.6.1.
+        Return a list of the last 10 transactions to enter the mempool.
+        """
+        self.bump_cost(1.0)
+        recent_txs = await self.mempool.get_recently_added_txs(count=10)
+        return [{
+            "txid": hash_to_hex_str(tx.hash),
+            "fee": tx.fee,
+            "vsize": tx.vsize,
+        } for tx in recent_txs]
+
     async def estimatefee(self, number, mode=None):
         '''The estimated transaction fee per kilobyte to be paid for a
         transaction to be included within a certain number of blocks.
@@ -1736,6 +1749,9 @@ class ElectrumX(SessionBase):
             handlers['mempool.get_info'] = self.mempool_info
         else:
             handlers['blockchain.relayfee'] = self.relayfee  # removed in 1.6
+
+        if ptuple >= (1, 6, 1):
+            handlers['mempool.recent'] = self.mempool_recent
 
         self.request_handlers = handlers
 
