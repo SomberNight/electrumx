@@ -37,6 +37,7 @@ from electrumx.lib.hash import (HASHX_LEN, Base58Error, hash_to_hex_str,
                                 hex_str_to_hash, sha256, double_sha256)
 from electrumx.lib.merkle import MerkleCache
 from electrumx.lib.text import sessions_lines
+from electrumx.lib.tx import TXOSpendStatus
 from electrumx.server.daemon import DaemonError
 from electrumx.server.transport import PaddedRSTransport
 
@@ -1371,9 +1372,66 @@ class ElectrumX(SessionBase):
             self.unsubscribe_hashX(hashX)
             return None
 
+    async def _spender_for_txo(self, prev_txhash: bytes, txout_idx: int) -> 'TXOSpendStatus':
+        """For an outpoint, returns its spend-status (ignoring mempool events).
+
+        Uses daemon (bitcoind) to find the spender_txhash, requiring "txospenderindex=1".
+        However, mempool events are ignored, as it would be difficult to distinguish block height 0 vs -1
+        using only the daemon. Instead, our own mempool data (as opposed to bitcoind's) can be used
+        separately to enrich the return value.
+        """
+        prev_txid = hash_to_hex_str(prev_txhash)
+        # 1. call bitcoind "getrawtransaction" to see if prevtx exists/is_mined
+        self.bump_cost(1)
+        try:
+            prevtx_item = await self.session_mgr.daemon.getrawtransaction(prev_txid, verbose=True)  # verbose=int(1)
+        except DaemonError as e:
+            error, = e.args
+            ecode = error['code']
+            if ecode == -5:  # "No such mempool or blockchain transaction."
+                return TXOSpendStatus(prev_height=None)  # utxo never existed
+            self.logger.debug(f"getrawtransaction errored. {prev_txid=}. {error=}")
+            raise RPCError(DAEMON_ERROR, f'daemon error: {error!r}') from None  # TODO some callers do not expect this
+        assert prevtx_item.get("txid") == prev_txid, f"{prevtx_item.get('txid')=} != {prev_txid=}"
+        funder_bhash = prevtx_item.get("blockhash")
+        funder_bheight = None  # type: Optional[int]
+        if funder_bhash is not None:
+            funder_bheight = self.db.get_blockheight_from_blockhash(funder_bhash)
+        if funder_bheight is None:  # if in mempool, will defer to mempool.spender_for_txo
+            return TXOSpendStatus(prev_height=None)  # utxo never existed (in chain)
+        assert isinstance(funder_bheight, int)
+        # ok, funding tx exists, does the requested output index also exist in this tx?
+        vouts = prevtx_item.get("vout") or []
+        if len(vouts) <= txout_idx:
+            return TXOSpendStatus(prev_height=None)  # txout_idx was out-of-bounds
+        # by now we know the funding TXO existed in the chain. Let's see if it was spent.
+        # 2. call bitcoind "gettxspendingprevout"
+        self.bump_cost(1)
+        try:
+            spender_item = await self.session_mgr.daemon.gettxspendingprevout(prev_txid, txout_idx)
+        except DaemonError as e:
+            error, = e.args
+            self.logger.debug(f"gettxspendingprevout errored. txo={prev_txid}:{txout_idx}. {error=}")
+            raise RPCError(DAEMON_ERROR, f'daemon error: {error!r}') from None  # TODO some callers do not expect this
+        assert spender_item.get("txid") == prev_txid, f"{spender_item.get('txid')=} != {prev_txid=}"
+        spender_bhash = spender_item.get("blockhash")
+        spender_bheight = None
+        if spender_bhash is not None:
+            spender_bheight = self.db.get_blockheight_from_blockhash(spender_bhash)
+        if spender_bheight is None:  # if in mempool, will defer to mempool.spender_for_txo
+            return TXOSpendStatus(prev_height=funder_bheight)  # utxo funded but unspent (in-chain)
+        spender_txid = spender_item.get("spendingtxid")
+        assert spender_txid is not None  # we already have a height!
+        # utxo funded, and spent (in-chain)
+        return TXOSpendStatus(
+            prev_height=funder_bheight,
+            spender_txhash=hex_str_to_hash(spender_txid),
+            spender_height=spender_bheight,
+        )
+
     async def _calc_txoutpoint_status(self, prev_txhash: bytes, txout_idx: int) -> Dict[str, Any]:
         self.bump_cost(0.2)
-        spend_status = await self.db.spender_for_txo(prev_txhash, txout_idx)
+        spend_status = await self._spender_for_txo(prev_txhash, txout_idx)
         if spend_status.spender_height is not None:
             # TXO was created, was mined, was spent, and spend was mined.
             assert spend_status.prev_height > 0
