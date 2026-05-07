@@ -115,6 +115,7 @@ class Coin:
     NAME: str
     NET: str
     MIN_REQUIRED_DAEMON_VERSION: Optional[str] = None
+    REQUIRED_DAEMON_INDEXES: Sequence[str] = tuple()
 
     # only used for initial db sync ETAs:
     TX_COUNT_HEIGHT: int  # at a given snapshot of the chain,
@@ -308,7 +309,9 @@ class Bitcoin(BitcoinMixin, Coin):
     TX_PER_BLOCK = 2200
     CRASH_CLIENT_VER = (3, 2, 3)
     # core version 28 introduced 1p1c package relay required for protocol 1.6
-    MIN_REQUIRED_DAEMON_VERSION = "28.0"
+    # core version 31 introduced "txospenderindex", required for protocol 1.7
+    MIN_REQUIRED_DAEMON_VERSION = "31.0"
+    REQUIRED_DAEMON_INDEXES = ("txindex", "txospenderindex",)
     BLACKLIST_URL = 'https://electrum.org/blacklist.json'
     PEERS = [
         'electrum.vom-stausee.de s t',
@@ -385,7 +388,9 @@ class BitcoinTestnet(BitcoinTestnetMixin, Coin):
     NAME = "Bitcoin"
     DESERIALIZER = lib_tx.DeserializerSegWit
     CRASH_CLIENT_VER = (3, 2, 3)
-    MIN_REQUIRED_DAEMON_VERSION = "28.0"
+    # core version 31 introduced "txospenderindex", required for protocol 1.7
+    MIN_REQUIRED_DAEMON_VERSION = "31.0"
+    REQUIRED_DAEMON_INDEXES = ("txindex", "txospenderindex",)
     PEERS = [
         'testnet.hsmiths.com t53011 s53012',
         'testnet.qtornado.com s t',
