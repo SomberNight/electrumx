@@ -173,6 +173,7 @@ class Controller(ServerBase):
 
             # Check if daemon is recent enough
             await daemon.check_daemon_version()
+            await daemon.check_daemon_indexes()
 
             caught_up_event = Event()
             mempool_event = Event()
