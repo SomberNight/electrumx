@@ -23,7 +23,7 @@ import attr
 from aiorpcx import run_in_thread, sleep
 
 import electrumx.lib.util as util
-from electrumx.lib.hash import hash_to_hex_str, HASHX_LEN
+from electrumx.lib.hash import hash_to_hex_str, HASHX_LEN, hex_str_to_hash
 from electrumx.lib.merkle import Merkle, MerkleCache
 from electrumx.lib.util import (
     formatted_time, pack_be_uint16, pack_be_uint32, pack_le_uint64, pack_le_uint32,
@@ -130,7 +130,7 @@ class DB:
         # on-disk: raw block headers in chain order
         self.headers_file = util.LogicalFile('meta/headers', 2, 16000000)
         # on-disk: cumulative number of txs at the end of height N
-        self.tx_counts = None  # type: Optional[array]
+        self.tx_counts = None  # type: Optional[array]  # in-memory
         self.tx_counts_file = util.LogicalFile('meta/txcounts', 2, 2000000)
         # on-disk: 32 byte txids in chain order, allows (tx_num -> txid) map
         self.hashes_file = util.LogicalFile('meta/hashes', 4, 16000000)
@@ -139,6 +139,9 @@ class DB:
         if not self.coin.STATIC_BLOCK_HEADERS:
             self.headers_offsets_file = util.LogicalFile(
                 'meta/headers_offsets', 2, 16000000)
+
+        # in-memory: (block_hash -> block_height) map
+        self.bhash_to_bheight = None  # type: Optional[dict[bytes, int]]
 
     async def _read_tx_counts(self):
         if self.tx_counts is not None:
@@ -180,8 +183,11 @@ class DB:
         )
         self.clear_excess_undo_info()
 
-        # Read TX counts (requires meta directory)
+        # Now prepare in-memory structures.
+        # - Read TX counts (requires meta directory)
         await self._read_tx_counts()
+        # - (block_hash -> block_height) map
+        await self._prep_bhash_to_bheight_map()
 
     async def open_for_sync(self):
         '''Open the databases to sync to the daemon.
@@ -215,6 +221,25 @@ class DB:
 
     async def header_branch_and_root(self, length, height):
         return await self.header_mc.branch_and_root(length, height)
+
+    # -- (block_hash -> block_height) map
+    async def _prep_bhash_to_bheight_map(self) -> None:
+        if self.bhash_to_bheight is not None:
+            return
+        self.bhash_to_bheight = {}
+        count = self.db_height + 1
+        block_hashes = await self.fs_block_hashes(0, count)
+        if len(block_hashes) != count:
+            raise Exception(
+                f"failed to prep bhash_to_bheight. "
+                f"wanted {count} bhashes, only got {len(block_hashes)}")
+        for bheight, bhash in enumerate(block_hashes):
+            self.bhash_to_bheight[bhash] = bheight
+        # note: for new blocks, the block_processor will keep the map up-to-date
+
+    def get_blockheight_from_blockhash(self, block_hash: str) -> Optional[int]:
+        bhash = hex_str_to_hash(block_hash)
+        return self.bhash_to_bheight.get(bhash, None)
 
     # Flushing
     def assert_flushed(self, flush_data: FlushData):
