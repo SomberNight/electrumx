@@ -17,7 +17,6 @@ from dataclasses import dataclass
 from typing import Sequence, Tuple, TYPE_CHECKING, Type, Dict, Optional, Set, Iterable
 import math
 
-import attr
 from aiorpcx import run_in_thread, sleep
 
 from electrumx.lib.hash import hash_to_hex_str, hex_str_to_hash
@@ -30,21 +29,21 @@ if TYPE_CHECKING:
     from electrumx.lib.coins import Coin
 
 
-@attr.s(slots=True)
+@dataclass(slots=True)
 class MemPoolTx:
-    prevouts = attr.ib()   # type: Sequence[Tuple[bytes, int]]  # (txid_rev, txout_idx)
+    prevouts: Sequence[Tuple[bytes, int]]  # (txid_rev, txout_idx)
     # A pair is a (hashX, value) tuple
-    in_pairs = attr.ib()   # type: Optional[Sequence[Tuple[bytes, int]]]  # (hashX, value_in_sats)
-    out_pairs = attr.ib()  # type: Sequence[Tuple[bytes, int]]  # (hashX, value_in_sats)
-    fee = attr.ib()        # type: int  # in sats
-    size = attr.ib()       # type: int  # in vbytes
+    in_pairs: Optional[Sequence[Tuple[bytes, int]]]  # (hashX, value_in_sats)
+    out_pairs: Sequence[Tuple[bytes, int]]  # (hashX, value_in_sats)
+    fee: int  # in sats
+    size: int  # in vbytes
 
 
-@attr.s(slots=True)
+@dataclass(slots=True)
 class MemPoolTxSummary:
-    txid_rev = attr.ib()                # type: bytes
-    fee = attr.ib()                     # type: int  # in sats
-    has_unconfirmed_inputs = attr.ib()  # type: bool
+    txid_rev: bytes
+    fee: int  # in sats
+    has_unconfirmed_inputs: bool
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
