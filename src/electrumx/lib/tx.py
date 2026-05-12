@@ -58,10 +58,10 @@ class Tx:
     inputs: Sequence['TxInput']
     outputs: Sequence['TxOutput']
     locktime: int
-    # The hashes need to be reversed for human display;
-    # for efficiency we process it in the natural serialized order.
-    txid: bytes
-    wtxid: bytes
+    # For efficiency, we store/process tx hashes in the natural serialized order ("rev").
+    # This is the reverse of the usual human display byteorder ("hum").
+    txid_rev: bytes
+    wtxid_rev: bytes
 
     def serialize(self):
         return b''.join((
@@ -77,24 +77,24 @@ class Tx:
 @dataclass(kw_only=True, slots=True)
 class TxInput:
     '''Class representing a transaction input.'''
-    prev_hash: bytes
+    prev_txid_rev: bytes
     prev_idx: int
     script: bytes
     sequence: int
 
     def __str__(self):
         script = self.script.hex()
-        prev_hash = hash_to_hex_str(self.prev_hash)
+        prev_hash = hash_to_hex_str(self.prev_txid_rev)
         return (f"Input({prev_hash}, {self.prev_idx:d}, script={script}, "
                 f"sequence={self.sequence:d})")
 
     def is_generation(self):
         '''Test if an input is generation/coinbase like'''
-        return self.prev_idx == MINUS_1 and self.prev_hash == ZERO
+        return self.prev_idx == MINUS_1 and self.prev_txid_rev == ZERO
 
     def serialize(self):
         return b''.join((
-            self.prev_hash,
+            self.prev_txid_rev,
             pack_le_uint32(self.prev_idx),
             pack_varbytes(self.script),
             pack_le_uint32(self.sequence),
@@ -116,7 +116,7 @@ class TxOutput:
 @dataclass(kw_only=True, slots=True)
 class TXOSpendStatus:
     prev_height: Optional[int]  # block height TXO is mined at. None if the outpoint never existed
-    spender_txhash: bytes = None
+    spender_txid_rev: bytes = None
     spender_height: int = None
 
 
@@ -130,7 +130,7 @@ class Deserializer:
     millions of times during sync.
     '''
 
-    TX_HASH_FN = staticmethod(double_sha256)
+    TX_HASH_FN = staticmethod(double_sha256)  # returns txid_rev
 
     def __init__(self, binary, start=0):
         assert isinstance(binary, bytes)
@@ -146,12 +146,12 @@ class Deserializer:
             inputs=self._read_inputs(),
             outputs=self._read_outputs(),
             locktime=self._read_le_uint32(),
-            txid=None,
-            wtxid=None,
+            txid_rev=None,
+            wtxid_rev=None,
         )
         txid = self.TX_HASH_FN(self.binary[start:self.cursor])
-        tx.txid = txid
-        tx.wtxid = txid
+        tx.txid_rev = txid
+        tx.wtxid_rev = txid
         return tx
 
     def read_tx_and_vsize(self) -> Tuple[Tx, int]:
@@ -175,7 +175,7 @@ class Deserializer:
 
     def _read_input(self):
         return TxInput(
-            prev_hash=self._read_nbytes(32),
+            prev_txid_rev=self._read_nbytes(32),
             prev_idx=self._read_le_uint32(),
             script=self._read_varbytes(),
             sequence=self._read_le_uint32(),
@@ -310,8 +310,8 @@ class DeserializerSegWit(Deserializer):
             outputs=outputs,
             witness=witness,
             locktime=locktime,
-            txid=txid,
-            wtxid=wtxid), vsize
+            txid_rev=txid,
+            wtxid_rev=wtxid), vsize
 
     def read_tx(self):
         return self._read_tx_parts()[0]
@@ -418,8 +418,8 @@ class DeserializerLitecoin(DeserializerSegWit):
             outputs=outputs,
             witness=witness,
             locktime=locktime,
-            txid=txid,
-            wtxid=wtxid), vsize
+            txid_rev=txid,
+            wtxid_rev=wtxid), vsize
 
     def read_tx(self):
         return self._read_tx_parts()[0]
@@ -509,8 +509,8 @@ class DeserializerZcash(DeserializerEquihash):
             inputs=self._read_inputs(),
             outputs=self._read_outputs(),
             locktime=self._read_le_uint32(),
-            txid=None,
-            wtxid=None,
+            txid_rev=None,
+            wtxid_rev=None,
         )
 
         if is_overwinter_v3 or is_sapling_v4:
@@ -537,7 +537,7 @@ class DeserializerZcash(DeserializerEquihash):
         if is_sapling_v4 and has_shielded:
             self.cursor += 64  # bindingSig
 
-        base_tx.txid = base_tx.wtxid = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
+        base_tx.txid_rev = base_tx.wtxid_rev = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
         return base_tx
 
 
@@ -579,8 +579,8 @@ class DeserializerPIVX(Deserializer):
             inputs=self._read_inputs(),
             outputs=self._read_outputs(),
             locktime=self._read_le_uint32(),
-            txid=None,
-            wtxid=None,
+            txid_rev=None,
+            wtxid_rev=None,
         )
 
         if version >= 3:  # >= sapling
@@ -594,7 +594,7 @@ class DeserializerPIVX(Deserializer):
             if (tx_type > 0):
                 self.cursor += 2  # extraPayload
 
-        base_tx.txid = base_tx.wtxid = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
+        base_tx.txid_rev = base_tx.wtxid_rev = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
         return base_tx
 
 
@@ -614,10 +614,10 @@ class DeserializerTxTime(Deserializer):
             inputs=self._read_inputs(),
             outputs=self._read_outputs(),
             locktime=self._read_le_uint32(),
-            txid=None,
-            wtxid=None,
+            txid_rev=None,
+            wtxid_rev=None,
         )
-        tx.txid = tx.wtxid = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
+        tx.txid_rev = tx.wtxid_rev = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
         return tx
 
 
@@ -679,8 +679,8 @@ class DeserializerTxTimeSegWit(DeserializerTxTime):
             outputs=outputs,
             witness=witness,
             locktime=locktime,
-            txid=txid,
-            wtxid=wtxid,
+            txid_rev=txid,
+            wtxid_rev=wtxid,
         )
         return tx, vsize
 
@@ -714,8 +714,8 @@ class DeserializerTxTimeSegWitNavCoin(DeserializerTxTime):
             inputs=inputs,
             outputs=outputs,
             locktime=locktime,
-            txid=txid,
-            wtxid=txid,
+            txid_rev=txid,
+            wtxid_rev=txid,
         )
 
     def _read_tx_parts(self):
@@ -765,8 +765,8 @@ class DeserializerTxTimeSegWitNavCoin(DeserializerTxTime):
             outputs=outputs,
             witness=witness,
             locktime=locktime,
-            txid=txid,
-            wtxid=wtxid,
+            txid_rev=txid,
+            wtxid_rev=wtxid,
         )
         return tx, vsize
 
@@ -802,8 +802,8 @@ class DeserializerTrezarcoin(Deserializer):
             outputs=outputs,
             locktime=locktime,
             txcomment=txcomment,
-            txid=txid,
-            wtxid=txid,
+            txid_rev=txid,
+            wtxid_rev=txid,
         )
 
     @staticmethod
@@ -856,8 +856,8 @@ class DeserializerBlackcoin(Deserializer):
                 inputs=self._read_inputs(),
                 outputs=self._read_outputs(),
                 locktime=self._read_le_uint32(),
-                txid=None,
-                wtxid=None,
+                txid_rev=None,
+                wtxid_rev=None,
             )
         else:
             tx = Tx(
@@ -865,10 +865,10 @@ class DeserializerBlackcoin(Deserializer):
                 inputs=self._read_inputs(),
                 outputs=self._read_outputs(),
                 locktime=self._read_le_uint32(),
-                txid=None,
-                wtxid=None,
+                txid_rev=None,
+                wtxid_rev=None,
             )
-        tx.txid = tx.wtxid = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
+        tx.txid_rev = tx.wtxid_rev = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
         return tx
 
 
@@ -891,8 +891,8 @@ class DeserializerReddcoin(Deserializer):
             inputs=inputs,
             outputs=outputs,
             locktime=locktime,
-            txid=txid,
-            wtxid=txid,
+            txid_rev=txid,
+            wtxid_rev=txid,
         )
 
 
@@ -912,8 +912,8 @@ class DeserializerVerge(Deserializer):
             inputs=inputs,
             outputs=outputs,
             locktime=locktime,
-            txid=txid,
-            wtxid=txid,
+            txid_rev=txid,
+            wtxid_rev=txid,
         )
 
 
@@ -1020,7 +1020,7 @@ class DeserializerTokenPay(DeserializerTxTime):
 
     def _read_input(self):
         txin = TxInputTokenPay(
-            prev_hash=self._read_nbytes(32),
+            prev_txid_rev=self._read_nbytes(32),
             prev_idx=self._read_le_uint32(),
             script=self._read_varbytes(),
             sequence=self._read_le_uint32(),
@@ -1139,7 +1139,7 @@ class DeserializerDecred(Deserializer):
         # TxSerializeNoWitness << 16 == 0x10000
         no_witness_header = pack_le_uint32(0x10000 | (version & 0xffff))
         prefix_tx = no_witness_header + self.binary[start+4:end_prefix]
-        tx_hash = self.blake256(prefix_tx)
+        txid_rev = self.blake256(prefix_tx)
 
         return TxDcr(
             version=version,
@@ -1148,8 +1148,8 @@ class DeserializerDecred(Deserializer):
             locktime=locktime,
             expiry=expiry,
             witness=witness,
-            txid=tx_hash,
-            wtxid=tx_hash,
+            txid_rev=txid_rev,
+            wtxid_rev=txid_rev,
         ), self.cursor - start
 
 
@@ -1182,8 +1182,8 @@ class DeserializerBitcoinDiamond(Deserializer):
                 inputs=self._read_inputs(),
                 outputs=self._read_outputs(),
                 locktime=self._read_le_uint32(),
-                txid=None,
-                wtxid=None,
+                txid_rev=None,
+                wtxid_rev=None,
             )
         else:
             tx = TxBitcoinDiamond(
@@ -1192,11 +1192,11 @@ class DeserializerBitcoinDiamond(Deserializer):
                 inputs=self._read_inputs(),
                 outputs=self._read_outputs(),
                 locktime=self._read_le_uint32(),
-                txid=None,
-                wtxid=None,
+                txid_rev=None,
+                wtxid_rev=None,
             )
         txid = self.TX_HASH_FN(self.binary[start:self.cursor])
-        tx.txid = tx.wtxid = txid
+        tx.txid_rev = tx.wtxid_rev = txid
         return tx
 
     def _get_version(self):
@@ -1264,8 +1264,8 @@ class DeserializerBitcoinDiamondSegWit(DeserializerBitcoinDiamond,
                 outputs=outputs,
                 witness=witness,
                 locktime=locktime,
-                txid=txid,
-                wtxid=wtxid), vsize
+                txid_rev=txid,
+                wtxid_rev=wtxid), vsize
         else:
             return TxSegWit(
                 version=version,
@@ -1275,8 +1275,8 @@ class DeserializerBitcoinDiamondSegWit(DeserializerBitcoinDiamond,
                 outputs=outputs,
                 witness=witness,
                 locktime=locktime,
-                txid=txid,
-                wtxid=wtxid), vsize
+                txid_rev=txid,
+                wtxid_rev=wtxid), vsize
 
     def read_tx(self):
         '''Return a (Deserialized TX, TX_HASH) pair.
@@ -1305,8 +1305,8 @@ class DeserializerElectra(Deserializer):
                 inputs=self._read_inputs(),
                 outputs=self._read_outputs(),
                 locktime=self._read_le_uint32(),
-                txid=None,
-                wtxid=None,
+                txid_rev=None,
+                wtxid_rev=None,
             )
         else:
             tx = Tx(
@@ -1314,10 +1314,10 @@ class DeserializerElectra(Deserializer):
                 inputs=self._read_inputs(),
                 outputs=self._read_outputs(),
                 locktime=self._read_le_uint32(),
-                txid=None,
-                wtxid=None,
+                txid_rev=None,
+                wtxid_rev=None,
             )
-        tx.txid = tx.wtxid = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
+        tx.txid_rev = tx.wtxid_rev = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
         return tx
 
 
@@ -1332,32 +1332,32 @@ class DeserializerECCoin(Deserializer):
             inputs=self._read_inputs(),
             outputs=self._read_outputs(),
             locktime=self._read_le_uint32(),
-            txid=None,
-            wtxid=None,
+            txid_rev=None,
+            wtxid_rev=None,
         )
 
         if tx_version > 1:
             self.cursor += 32
 
-        tx.txid = tx.wtxid = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
+        tx.txid_rev = tx.wtxid_rev = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
         return tx
 
 
 class DeserializerZcoin(Deserializer):
     def _read_input(self):
         tx_input = TxInput(
-            prev_hash=self._read_nbytes(32),
+            prev_txid_rev=self._read_nbytes(32),
             prev_idx=self._read_le_uint32(),
             script=self._read_varbytes(),
             sequence=self._read_le_uint32(),
         )
 
-        if tx_input.prev_idx == MINUS_1 and tx_input.prev_hash == ZERO:
+        if tx_input.prev_idx == MINUS_1 and tx_input.prev_txid_rev == ZERO:
             return tx_input
 
         if tx_input.script[0] == 0xc4:  # This is a Sigma spend - mimic a generation tx
             return TxInput(
-                prev_hash=ZERO,
+                prev_txid_rev=ZERO,
                 prev_idx=MINUS_1,
                 script=tx_input.script,
                 sequence=tx_input.sequence
@@ -1418,8 +1418,8 @@ class DeserializerSimplicity(Deserializer):
                 inputs=self._read_inputs(),
                 outputs=self._read_outputs(),
                 locktime=self._read_le_uint32(),
-                txid=None,
-                wtxid=None,
+                txid_rev=None,
+                wtxid_rev=None,
             )
         else:
             tx = Tx(
@@ -1427,10 +1427,10 @@ class DeserializerSimplicity(Deserializer):
                 inputs=self._read_inputs(),
                 outputs=self._read_outputs(),
                 locktime=self._read_le_uint32(),
-                txid=None,
-                wtxid=None,
+                txid_rev=None,
+                wtxid_rev=None,
             )
-        tx.txid = tx.wtxid = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
+        tx.txid_rev = tx.wtxid_rev = self.TX_HASH_FN(self.binary[orig_start:self.cursor])
         return tx
 
 
