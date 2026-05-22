@@ -45,6 +45,8 @@ class _DefaultSize:
 
 _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
+
+
 class Cache(collections.abc.MutableMapping[_KT, _VT]):
     """Mutable mapping to serve as a simple cache or cache base class."""
 
