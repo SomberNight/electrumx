@@ -35,7 +35,8 @@ import logging
 import sys
 from collections.abc import Container, Mapping
 from struct import Struct
-from typing import Set, Any
+import time
+from typing import Set, Any, Optional
 
 import aiorpcx
 
@@ -451,3 +452,33 @@ _aiorpcx_orig_unset_task_deadline = aiorpcx.curio._unset_task_deadline
 aiorpcx.curio._set_new_deadline = _aiorpcx_monkeypatched_set_new_deadline
 aiorpcx.curio._set_task_deadline = _aiorpcx_monkeypatched_set_task_deadline
 aiorpcx.curio._unset_task_deadline = _aiorpcx_monkeypatched_unset_task_deadline
+
+
+def stats_profiler(func):
+    if not stats_profiler.enabled:
+        # if disabled, there should be virtually no performance impact
+        return func
+
+    if inspect.iscoroutinefunction(func):
+        async def do_profile(*args, **kw_args):
+            timer_start()
+            o = await func(*args, **kw_args)
+            timer_done()
+            return o
+    else:
+        def do_profile(*args, **kw_args):
+            timer_start()
+            o = func(*args, **kw_args)
+            timer_done()
+            return o
+
+    t0 = None  # type: Optional[float]
+    do_profile._total_time_taken = 0
+    def timer_start():
+        nonlocal t0
+        t0 = time.monotonic()
+    def timer_done():
+        do_profile._total_time_taken += time.monotonic() - t0
+    return do_profile
+
+stats_profiler.enabled = True

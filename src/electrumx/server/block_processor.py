@@ -20,7 +20,7 @@ from electrumx.server.daemon import DaemonError, Daemon
 from electrumx.lib.hash import hash_to_hex_str, HASHX_LEN
 from electrumx.lib.script import is_unspendable_legacy, is_unspendable_genesis
 from electrumx.lib.util import (
-    chunks, class_logger, OldTaskGroup,
+    chunks, class_logger, OldTaskGroup, stats_profiler,
 )
 from electrumx.lib.tx import Tx
 from electrumx.server.db import FlushData, COMP_TXID_LEN, DB
@@ -72,7 +72,8 @@ class Prefetcher:
             try:
                 # Sleep a while if there is nothing to prefetch
                 await self.refill_event.wait()
-                if not await self._prefetch_blocks():
+                daemon_is_ahead = await self._prefetch_blocks()
+                if not daemon_is_ahead:
                     # The mempool logic and maybe others can independently notice the daemon's height
                     # changing. If that happens, we should wake up immediately to fetch blocks.
                     async with ignore_after(self.polling_delay):
@@ -116,6 +117,7 @@ class Prefetcher:
         else:
             self.logger.info(f'caught up to daemon height {daemon_height:,d}')
 
+    @stats_profiler
     async def _prefetch_blocks(self) -> bool:
         '''Prefetch some blocks and put them on the queue.
 
@@ -230,6 +232,7 @@ class BlockProcessor:
                 return await run_in_thread(func, *args)
         return await asyncio.shield(run_in_thread_locked())
 
+    @stats_profiler
     async def check_and_advance_blocks(self, raw_blocks: Sequence[bytes]) -> None:
         '''Process the list of raw blocks passed.  Detects and handles
         reorgs.
@@ -393,6 +396,7 @@ class BlockProcessor:
             )
         await self.run_in_thread_with_lock(flush)
 
+    @stats_profiler
     async def _maybe_flush(self) -> None:
         # If caught up, flush everything as client queries are
         # performed on the DB.
@@ -430,11 +434,13 @@ class BlockProcessor:
             return utxo_MB >= cache_MB * 4 // 5
         return None
 
+    @stats_profiler
     def advance_blocks(self, blocks: Sequence['Block']) -> None:
         '''Synchronously advance the blocks.
 
         It is already verified they correctly connect onto our tip.
         '''
+        assert self.state_lock.locked()
         min_height = self.db.min_undo_height(self.daemon.cached_height())
         height = self.height
         genesis_activation = self.coin.GENESIS_ACTIVATION
@@ -459,6 +465,7 @@ class BlockProcessor:
         self.tip_advanced_event.clear()
         self.logger.debug(f"new height: {self.height}")
 
+    @stats_profiler
     def advance_txs(
             self,
             txs: Sequence[Tx],
@@ -654,6 +661,7 @@ class BlockProcessor:
     collision rate is low (<0.1%).
     '''
 
+    @stats_profiler
     def spend_utxo(self, txid_rev: bytes, tx_idx: int) -> bytes:
         '''Spend a UTXO and return (hashX + tx_num + value_sats).
 
@@ -713,6 +721,23 @@ class BlockProcessor:
             else:
                 blocks = self.prefetcher.get_prefetched_blocks()
                 await self.check_and_advance_blocks(blocks)
+                self._log_stats_for_benchmarking()
+
+    def _log_stats_for_benchmarking(self) -> None:
+        if stats_profiler.enabled:
+            self.logger.debug(
+                f"total times:\n"
+                f"ch_adv_bl={self.check_and_advance_blocks._total_time_taken:.2f} (\n"
+                f"  block_deser={self.coin.block._total_time_taken:.2f},\n"
+                f"  adv_bl={self.advance_blocks._total_time_taken:.2f} (\n"
+                f"      adv_tx={self.advance_txs._total_time_taken:.2f} (\n"
+                f"          spend_utxo={self.spend_utxo._total_time_taken:.2f},\n"
+                f"      ),\n"
+                f"  ),\n"
+                f"  flush={self._maybe_flush._total_time_taken:.2f},\n"
+                f"),\n"
+                f"prefetch_blocks={self.prefetcher._prefetch_blocks._total_time_taken:.2f},\n"
+            )
 
     async def _first_caught_up(self) -> None:
         self.logger.info(f'caught up to height {self.height}')

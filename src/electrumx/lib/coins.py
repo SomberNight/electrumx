@@ -246,6 +246,7 @@ class Coin:
         return block[:cls.static_header_len(height)]
 
     @classmethod
+    @util.stats_profiler
     def block(cls, raw_block: bytes, height: int) -> 'Block':
         '''Return a Block namedtuple given a raw block and its height.'''
         header = cls.block_header(raw_block, height)
