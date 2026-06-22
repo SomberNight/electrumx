@@ -481,4 +481,4 @@ def stats_profiler(func):
         do_profile._total_time_taken += time.monotonic() - t0
     return do_profile
 
-stats_profiler.enabled = True
+stats_profiler.enabled = False  # TODO use env var  # TODO broken with InterpreterPool???
