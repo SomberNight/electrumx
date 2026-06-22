@@ -741,24 +741,20 @@ class BlockProcessor:
 
     async def _process_prefetched_blocks(self) -> None:
         '''Loop forever processing blocks as they arrive.'''
-        XPoolExecutor = ThreadPoolExecutor
-        #XPoolExecutor = InterpreterPoolExecutor or ThreadPoolExecutor
-        self.logger.info(f"using pool executor: {XPoolExecutor}")
-        with XPoolExecutor(initializer=_init_pool, initargs=(self.coin,)) as self.pool_executor:
-            while True:
-                if self.height == self.daemon.cached_height():
-                    if not self._caught_up_event.is_set():
-                        await self._first_caught_up()
-                        self._caught_up_event.set()
-                await self.blocks_event.wait()
-                self.blocks_event.clear()
-                if self.reorg_count:
-                    await self.reorg_chain(self.reorg_count)
-                    self.reorg_count = 0
-                else:
-                    blocks = self.prefetcher.get_prefetched_blocks()
-                    await self.check_and_advance_blocks(blocks)
-                    self._log_stats_for_benchmarking()
+        while True:
+            if self.height == self.daemon.cached_height():
+                if not self._caught_up_event.is_set():
+                    await self._first_caught_up()
+                    self._caught_up_event.set()
+            await self.blocks_event.wait()
+            self.blocks_event.clear()
+            if self.reorg_count:
+                await self.reorg_chain(self.reorg_count)
+                self.reorg_count = 0
+            else:
+                blocks = self.prefetcher.get_prefetched_blocks()
+                await self.check_and_advance_blocks(blocks)
+                self._log_stats_for_benchmarking()
 
     def _log_stats_for_benchmarking(self) -> None:
         if stats_profiler.enabled:
@@ -810,15 +806,19 @@ class BlockProcessor:
         '''
         self._caught_up_event = caught_up_event
         await self._first_open_dbs()
-        try:
-            async with OldTaskGroup() as group:
-                await group.spawn(self.prefetcher.main_loop(self.height))
-                await group.spawn(self._process_prefetched_blocks())
-        # Don't flush for arbitrary exceptions as they might be a cause or consequence of
-        # corrupted data
-        except CancelledError:
-            self.logger.info('flushing to DB for a clean shutdown...')
-            await self.flush(True)
+        XPoolExecutor = ThreadPoolExecutor
+        # XPoolExecutor = InterpreterPoolExecutor or ThreadPoolExecutor
+        self.logger.info(f"using pool executor: {XPoolExecutor}")
+        with XPoolExecutor(initializer=_init_pool, initargs=(self.coin,)) as self.pool_executor:
+            try:
+                async with OldTaskGroup() as group:
+                    await group.spawn(self.prefetcher.main_loop(self.height))
+                    await group.spawn(self._process_prefetched_blocks())
+            # Don't flush for arbitrary exceptions as they might be a cause or consequence of
+            # corrupted data
+            except CancelledError:
+                self.logger.info('flushing to DB for a clean shutdown...')
+                await self.flush(True)
 
     def force_chain_reorg(self, count: int) -> bool:
         '''Force a reorg of the given number of blocks.
