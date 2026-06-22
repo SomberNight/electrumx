@@ -491,7 +491,6 @@ class BlockProcessor:
             txs: Sequence[Tx],
             is_unspendable: Callable[[bytes], bool],
     ) -> Sequence[bytes]:
-        # TODO split into two funcs, first fund all outputs, second spend all inputs
         self.txids_rev.append(b''.join(tx.txid_rev for tx in txs))
 
         # Use local vars for speed in the loops
@@ -507,7 +506,7 @@ class BlockProcessor:
         _pack_sats = pack_satoshis_val
         _pack_txnum = pack_txnum
 
-        # Add the new UTXOs
+        # 1. process tx outputs: fund UTXOs
         for tx, hashXs in zip(txs, hashXs_by_tx):
             txid_rev = tx.txid_rev
             add_hashXs = hashXs.append
@@ -526,9 +525,9 @@ class BlockProcessor:
                 add_touched_outpoint((txid_rev, idx))
             tx_num += 1
 
-        # Spend the inputs
-        # A separate for-loop here allows any tx ordering in block.
-        for tx_pos, tx in enumerate(txs):
+        # 2. process tx inputs: spend UTXOs
+        # note: we don't care about tx ordering in the block
+        def process_txins_for_single_tx(tx_pos: int, tx: Tx) -> None:
             add_hashXs = hashXs_by_tx[tx_pos].append
             tx_undo_info = []  # type: list[bytes]
             tx_undo_info_append = tx_undo_info.append
@@ -541,6 +540,15 @@ class BlockProcessor:
                 prevout_tuple = (txin.prev_txid_rev, txin.prev_idx)
                 add_touched_outpoint(prevout_tuple)
             bl_undo_info[tx_pos] = b"".join(tx_undo_info)
+
+        def process_txins_for_chunk(txs_chunk):
+            for tx_pos, tx in txs_chunk:
+                process_txins_for_single_tx(tx_pos=tx_pos, tx=tx)
+
+        list(self.pool_executor.map(
+            process_txins_for_chunk,
+            chunks(list(enumerate(txs)), 200),
+        ))
 
         # Update touched set for notifications
         for hashXs in hashXs_by_tx:
