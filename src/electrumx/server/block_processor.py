@@ -258,10 +258,8 @@ class BlockProcessor:
         if not raw_blocks:
             return
         first = self.height + 1
-        # blocks = self.pool_executor.map(eval_g_coin_block, raw_blocks, range(first, first + (len(raw_blocks))))
-        # blocks = list(blocks)
-        blocks = [self.coin.block(raw_block, first + n)
-                  for n, raw_block in enumerate(raw_blocks)]
+        blocks = self.pool_executor.map(self.coin.block, raw_blocks, range(first, first + (len(raw_blocks))))
+        blocks = list(blocks)  # join threads
         headers = [block.header for block in blocks]
         hprevs = [self.coin.header_prevhash_rev(h) for h in headers]
         chain = [self.tip] + [self.coin.header_hash_rev(h) for h in headers[:-1]]
@@ -495,7 +493,7 @@ class BlockProcessor:
 
         # Use local vars for speed in the loops
         bl_undo_info = [b"" for _ in txs]  # type: list[bytes]
-        tx_num = self.tx_count
+        tx_num_start = self.tx_count
         script_hashX = self.coin.hashX_from_script
         put_utxo = self.utxo_cache.__setitem__
         spend_utxo = self.spend_utxo
@@ -507,9 +505,10 @@ class BlockProcessor:
         _pack_txnum = pack_txnum
 
         # 1. process tx outputs: fund UTXOs
-        for tx, hashXs in zip(txs, hashXs_by_tx):
+        for tx_pos, tx in enumerate(txs):
             txid_rev = tx.txid_rev
-            add_hashXs = hashXs.append
+            add_hashXs = hashXs_by_tx[tx_pos].append
+            tx_num = tx_num_start + tx_pos
             tx_numb = _pack_txnum(tx_num)
 
             for idx, txout in enumerate(tx.outputs):
@@ -523,7 +522,8 @@ class BlockProcessor:
                 put_utxo(txid_rev + _pack_txoutidx(idx),
                          hashX + tx_numb + _pack_sats(txout.value))
                 add_touched_outpoint((txid_rev, idx))
-            tx_num += 1
+
+        # barrier. all threads have been joined.
 
         # 2. process tx inputs: spend UTXOs
         # note: we don't care about tx ordering in the block
@@ -556,8 +556,9 @@ class BlockProcessor:
 
         self.db.history.add_unflushed(hashXs_by_tx, self.tx_count)
 
-        self.tx_count = tx_num
-        self.db.tx_counts.append(tx_num)
+        tx_num_end = tx_num_start + len(txs)
+        self.tx_count = tx_num_end
+        self.db.tx_counts.append(tx_num_end)
 
         return bl_undo_info
 
