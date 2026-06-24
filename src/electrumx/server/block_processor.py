@@ -469,9 +469,10 @@ class BlockProcessor:
             tx_num += len(block.transactions)
             self.db.tx_counts.append(tx_num)
         self.tx_count = tx_num
+        self.db.history.update_tx_count_next(tx_num)
 
         # process tx outputs
-        blk_process_outputs = []  # type: list[Callable[[], Callable[[], None]]]
+        blk_process_outputs = []  # type: list[Callable[[], None]]
         height = self.height
         for block in blocks:
             height += 1
@@ -486,11 +487,10 @@ class BlockProcessor:
                 fut = self.pool_executor1.submit(func)
                 blk_process_outputs.append(lambda fut=fut: fut.result())
         for func in blk_process_outputs:
-            add_unflushed_hist = func()
-            add_unflushed_hist()
+            func()
 
         # process tx inputs
-        blk_process_inputs = []  # type: list[Callable[[], Callable[[], None]]]
+        blk_process_inputs = []  # type: list[Callable[[], None]]
         height = self.height
         for block in blocks:
             height += 1
@@ -506,8 +506,7 @@ class BlockProcessor:
                 fut = self.pool_executor1.submit(func)
                 blk_process_inputs.append(lambda fut=fut: fut.result())
         for func in blk_process_inputs:
-            add_unflushed_hist = func()
-            add_unflushed_hist()
+            func()
 
         height = self.height
         for block in blocks:
@@ -529,7 +528,7 @@ class BlockProcessor:
             txs: Sequence[Tx],
             *,
             height: int,
-    ) -> Callable[[], None]:
+    ) -> None:
 
         tx_num_start = self.db.tx_counts[height - 1] if height > 0 else 0
         is_unspendable = (
@@ -581,7 +580,7 @@ class BlockProcessor:
         for hashXs in hashXs_by_tx:
             update_touched_hashxs(hashXs)
 
-        return lambda: self.db.history.add_unflushed(hashXs_by_tx, tx_num_start, bump_tx_count_next=False)
+        self.db.history.add_unflushed(hashXs_by_tx, tx_num_start)
 
     def advance_txs_process_inputs(
             self,
@@ -589,7 +588,7 @@ class BlockProcessor:
             *,
             height: int,
             add_undo_info: bool,
-    ) -> Callable[[], None]:
+    ) -> None:
 
         tx_num_start = self.db.tx_counts[height - 1] if height > 0 else 0
 
@@ -637,7 +636,7 @@ class BlockProcessor:
         if add_undo_info:
             self.undo_infos[height] = bl_undo_info
 
-        return lambda: self.db.history.add_unflushed(hashXs_by_tx, tx_num_start, bump_tx_count_next=True)
+        self.db.history.add_unflushed(hashXs_by_tx, tx_num_start)
 
     def backup_blocks(self, raw_blocks: Sequence[bytes]) -> None:
         '''Backup the raw blocks and flush.
